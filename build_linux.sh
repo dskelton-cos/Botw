@@ -14,7 +14,7 @@ python -m PyInstaller --noconfirm --clean --onefile \
   --add-data "web:web" \
   --hidden-import texture2ddecoder \
   --hidden-import PIL.WebPImagePlugin --hidden-import PIL.PngImagePlugin \
-  --hidden-import segno --exclude-module webview \
+  --hidden-import segno --hidden-import certifi --exclude-module webview \
   server.py
 echo
 echo "Built: $(pwd)/dist/BotWProgressMap-linux-x86_64"
