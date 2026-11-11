@@ -205,7 +205,9 @@ def build(extracted, out=OUT, lang='USen', log=print):
                                           'completion_hash': flag(f'RevivalGreatFairy{n}'), 'actor': u})
             continue
         for prefix, key in BOSSES:
-            if u.startswith(prefix):
+            # (the Champions' Ballad's Igneo Talus Titan and Molduking, Enemy_Golem_Fire_R / Enemy_SandwormR, are
+            # quest bosses: their IsDefeat flag stays 0 even in a 100% save)
+            if u.startswith(prefix) and not u.endswith('R'):
                 f = flag(f'MainField_IsDefeat_{u}_{hid}')
                 if f is not None:
                     data[key].append({'display_name': actor_name(u) or u, 'completion_hash': f,
