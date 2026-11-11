@@ -1,5 +1,7 @@
 # BotW Progress Map
 
+![The map around Kakariko: what's still missing, with a shrine's name and trial](docs/screenshots/map.webp)
+
 A companion app for [Savage Wind Recomp](https://github.com/Revivedx/SavageWindRecomp), the native PC port of
 *Breath of the Wild*. It reads your save and shows what you have and haven't found on the map of Hyrule: Korok
 seeds, shrines (including ones you found but haven't finished), Sheikah Towers, Divine Beasts, Great Fairies,
@@ -11,8 +13,18 @@ their status (in progress, not started, not available yet, done), the quest give
 text of the step you're on. "Show on map" jumps to where the quest wants you to go, and active quest targets can be
 shown on the map (gold). "Where to start quests" puts a blue **!** where the quest giver stands.
 
+| Quests tab | The whole map |
+|---|---|
+| ![Quests tab: what's left to do, with the quest giver](docs/screenshots/quests.webp) | ![Zoomed out: everything still missing in Hyrule](docs/screenshots/overview.webp) |
+
+**Spoiler-free mode** (checkbox at the top of the legend) shows everything you haven't found yet as a plain **?**:
+no type, name or chest contents, all under one "Undiscovered" filter. A **?** never matches a search.
+
+![Spoiler-free mode: everything not found yet is a ?](docs/screenshots/spoiler_free.webp)
+
 It re-reads the save every few seconds, so the map updates on its own whenever the game saves. It only ever
-reads your game and save files; it never writes to them.
+reads your game and save files; it never writes to them. When a new version is out, a notice links to it
+(⚙ → *Updates* turns the check off).
 
 It's the sister app of [TotK Progress Map](https://github.com/phatnguyen-v1/totk-progress) and works the same way.
 
@@ -21,7 +33,10 @@ It's the sister app of [TotK Progress Map](https://github.com/phatnguyen-v1/totk
 You need Savage Wind set up with your game files (game version 1.9.0, with or without the DLC). The app builds
 its map, collectibles and quests from those files.
 
-1. Run the app (see *Run from source* below).
+1. Download `BotWProgressMap.exe` from [Releases](../../releases/latest), put it anywhere and double-click it
+   (Windows may say the app is unrecognized: *More info* → *Run anyway*; the exe isn't code-signed). On Linux
+   (also a Steam Deck in Desktop Mode): `BotWProgressMap-linux-x86_64`, `chmod +x` it and run it; the map opens in
+   your browser. Or run it from source, see below.
 2. The setup page opens. Pick your Savage Wind folder: the one with `savagewind.exe`, or its data folder (the one
    with `extracted` and `save`, e.g. the `SAVAGEWIND_DATA_ROOT` you set). The app looks on your drives and usually
    finds it; otherwise click **Browse…**.
@@ -29,6 +44,9 @@ its map, collectibles and quests from those files.
    files (about 20 seconds). Then the map opens with your progress.
 
 **⚙** at the top of the panel changes the game folder, the language, and has *Open in browser* and the phone view.
+Close the window to stop the app; opening the exe again while it runs brings the window to the front. Settings and the
+data built from your game files are kept in `%LOCALAPPDATA%\BotWProgressMap` (Linux: `~/.local/share/BotWProgressMap`);
+delete that folder to reset.
 
 **On your phone:** click the phone button at the bottom right of the map, *Turn on*, and scan the QR code. Only
 phones and tablets on the **same Wi-Fi or network** as your PC can open it. They get the same map, read-only.

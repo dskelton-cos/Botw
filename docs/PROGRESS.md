@@ -6,13 +6,14 @@ Where the project stands, what was learned along the way, and what's next. Updat
 
 | | |
 |---|---|
-| Version | 0.1.0, not released; runs from source |
-| Tested on | Savage Wind (game 1.9.0 + DLC, English) with saves in `F:\Games\SavageWind`, from source in the browser |
+| Version | 0.1.0: Windows exe and Linux binary built by GitHub Actions on the `v0.1.0` tag |
+| Tested on | Savage Wind (game 1.9.0 + DLC, English) with saves in `F:\Games\SavageWind`: from source in the browser, and the exe (app window, setup, save) from a Desktop shortcut |
+| Also in 0.1.0 | Spoiler-free mode and new-version notice, ported from totk-progress `cb4377f`; README screenshots taken with headless Edge from the running app |
 | Started from | [totk-progress](https://github.com/phatnguyen-v1/totk-progress) v1.6.0 (server, page, setup, phone view) |
 
 ### Next up
 1. Check more saves (later in the game: Divine Beasts, Great Fairies, bosses, quest steps with branches).
-2. Build and try the Windows exe (`build_exe.bat`) and the Linux binary; a GitHub repo and release workflow.
+2. Try the Linux binary on a real desktop / Steam Deck (CI only runs a start-up smoke test).
 3. Korok puzzle types (the hidden Korok links to its puzzle through `LinkTagAnd` / `LinkTagOr` actors), memories
    (`IsGet_MemoryPhoto_NNN`, positions not found yet), Hestu.
 4. Interface translations (`web/i18n/<code>.json`; only English so far, game text is already in every language).
@@ -55,3 +56,15 @@ Where the project stands, what was learned along the way, and what's next. Updat
 ### Checked against the owner's save (slot 2, 3 h 22 min)
 5 Koroks (= `HiddenKorok_Number`), 4 shrines (the Great Plateau's), Great Plateau tower, 2 main quests done and
 "Seek Out Impa" in progress with its target at Impa's house.
+
+### Checked against a public 100% save (2026-11-11)
+[Torphedo/BOTW-CompletedSaveFile](https://github.com/Torphedo/BOTW-CompletedSaveFile) release 1.0, `Switch-100.zip`
+(game 1.6 format, version 0x471b; kept out of the repo). Slots 0-5, 362 h: Koroks 900/900 (= `HiddenKorok_Number`),
+shrines 136/136, towers 15/15, Divine Beasts 4/4, locations 164/164, Great Fairies 4/4, Hinoxes 40/40, Taluses 40/40,
+Moldugas 4/4, quests 151 done with only "Destroy Ganon" open (the game reloads to before the final fight).
+- Fixed: the Champions' Ballad's Igneo Talus Titan (`Enemy_Golem_Fire_R`) and Molduking (`Enemy_SandwormR`) have
+  an `IsDefeat` flag that stays 0 even at 100%, so they're left out (the medal counts are 40 Taluses, 4 Moldugas).
+- Chests: 372 of 1,281 opened, armor chests 30/31 (the Great Plateau's Warm Doublet chest wasn't opened). 100%
+  doesn't need chests; every chest flag is a never-reset one (`ResetType` 0), so this is the player's real count.
+- Slots 6-7 (an earlier run, 26 h): sensible current steps for 39 active quests, the DLC's EX quests all open at
+  once as in the game.
