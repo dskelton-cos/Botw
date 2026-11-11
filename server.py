@@ -200,7 +200,7 @@ def inspect(path):
     if save_dir:
         info['save_dir'] = str(save_dir)
         info['slots'] = len(_slot_dirs(save_dir))
-        info['tracker'] = bool(herospath.block_files(herospath.tracker_dir(save_dir) or save_dir / 'tracker'))
+        info['tracker'] = bool(herospath.modes(herospath.tracker_dir(save_dir)))
     if not root and not save_dir:
         info['notes'].append(f"This doesn't look like a Savage Wind folder: no {GAME_EXE}, extracted or save "
                              "folder inside.")
@@ -300,7 +300,7 @@ class State:
         self.save_dir = None
         self.map_data = self.quests = None
         self.cache = {}
-        self.path_cache = None   # (stamp, packed Hero's Path)
+        self.path_cache = {}     # mode -> (stamp, timeline, packed Hero's Path or None)
         self.job = {'running': False, 'progress': 0.0, 'message': '', 'error': None, 'done': False}
         self.reload()
 
@@ -316,7 +316,7 @@ class State:
         self.quests = qdata.get('quests')
         with self.lock:
             self.cache.clear()
-            self.path_cache = None
+            self.path_cache = {}
 
     def ready(self):
         return bool(self.save_dir) and self.map_data is not None and have_assets()
@@ -486,6 +486,36 @@ class State:
             except (savefile.SaveError, OSError, struct.error) as e:
                 entry['error'] = str(e)
             out.append(entry)
+        self._slot_modes(out)
+        return out
+
+    def _slot_modes(self, slots):
+        """Set each slot's 'mode' (normal or master): which Hero's Path recording it belongs to. Master Mode has its
+        own recording and its own slots; the save doesn't say which, so it's the recording that was where the slot
+        was saved at its play time (see herospath.slot_mode)."""
+        folder = herospath.tracker_dir(self.save_dir)
+        modes = herospath.modes(folder)
+        default = 'normal' if 'normal' in modes or not modes else modes[0]
+        timelines = self._timelines(folder, modes, slots) if len(modes) > 1 else {}
+        for s in slots:
+            mode = None
+            if timelines and 'error' not in s and s.get('pos'):
+                mode = herospath.slot_mode(timelines, s['playtime'], *s['pos'])
+            s['mode'] = mode or default
+
+    def _timelines(self, folder, modes, slots):
+        """{mode: timeline} of the Hero's Path recordings, re-read when a trackblock file or a slot changes."""
+        saves = tuple((s['playtime'], *s['pos']) for s in slots if 'error' not in s and s.get('pos'))
+        out = {}
+        for mode in modes:
+            key = (str(folder), herospath.stamp(folder, mode), saves)
+            with self.lock:
+                hit = self.path_cache.get(mode)
+            if not hit or hit[0] != key:
+                hit = (key, herospath.indexed(herospath.read(folder, mode, saves)), None)
+                with self.lock:
+                    self.path_cache[mode] = hit
+            out[mode] = hit[1]
         return out
 
     def latest_slot(self):
@@ -513,22 +543,24 @@ class State:
         result.update(slot=slot, mtime=st.st_mtime)
         with self.lock:
             self.cache[slot] = (key, result)
-        return result
+        return {**result, 'mode': next((s['mode'] for s in self.slots() if s['slot'] == slot), 'normal')}
 
-    def hero_path(self):
-        """The Hero's Path (herospath.pack), re-read when a trackblock file changes. Shared by all slots: the page
-        cuts it at the play time of the slot it shows."""
+    def hero_path(self, mode='normal'):
+        """The Hero's Path of a mode (herospath.pack), re-read when a trackblock file changes. Shared by the slots of
+        that mode: the page cuts it at the play time of the slot it shows."""
         folder = herospath.tracker_dir(self.save_dir)
-        if not folder:
-            return {'found': False, 'n': 0}
-        key = (str(folder), herospath.stamp(folder))
+        if mode not in herospath.modes(folder):
+            return {'found': False, 'n': 0, 'mode': mode}
+        timeline = self._timelines(folder, [mode], self.slots())[mode]
         with self.lock:
-            if self.path_cache and self.path_cache[0] == key:
-                return self.path_cache[1]
-        result = {'found': True, **herospath.pack(herospath.read(folder))}
+            key, tl, packed = self.path_cache[mode]
+            if packed is not None and tl is timeline:
+                return packed
+        packed = {'found': True, 'mode': mode, **herospath.pack(timeline)}
         with self.lock:
-            self.path_cache = (key, result)
-        return result
+            if self.path_cache.get(mode, (None, None))[1] is timeline:
+                self.path_cache[mode] = (key, timeline, packed)
+        return packed
 
 
 # ---------------------------------------------------------------- folder picker
@@ -750,7 +782,11 @@ def make_handler(state, server_ref, remote=False):
                     else:
                         self.send_json(state.progress(slot))
                 elif p == '/api/path':
-                    self.send_json(state.hero_path())
+                    mode = q.get('mode', ['normal'])[0]
+                    if mode not in herospath.MODES:
+                        self.send_json({'error': 'unknown mode'}, 400)
+                    else:
+                        self.send_json(state.hero_path(mode))
                 elif p == '/data/map_data.json':
                     self.send_file(ASSETS / 'map_data.json', cache=True)
                 elif p == '/data/quests.json':

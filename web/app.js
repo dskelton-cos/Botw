@@ -346,8 +346,8 @@ function renderPlayer() {
 
 // ---------- Hero's Path ----------
 // Where Link has been, from the game's own recording (tracker/trackblockNN.sav, see herospath.py): a point every
-// 2 seconds of play on the map of Hyrule. Shared by all slots, so it's cut at the play time of the slot shown,
-// as the game does when you load an older save. The slider cuts it earlier; Replay plays it back.
+// 2 seconds of play on the map of Hyrule. Master Mode has its own recording (trackblock_hardNN.sav); each slot
+// shows its mode's, cut at the slot's play time, as the game does when you load an older save. The slider cuts it earlier; Replay plays it back.
 const HP_BREAK = -0x8000;      // herospath.BREAK: the line stops here (warp, shrine, ...)
 const HP_BANDS = 14;           // color steps from oldest to newest
 const HP_TRAIL = 30 * 60;      // "Only the last 30 min"
@@ -357,8 +357,8 @@ const hp = {
   on: store.get('hpath', false),
   color: store.get('hpathColor', true),
   trail: store.get('hpathTrail', false),
-  data: null,           // {xz: Int16Array, t: Uint32Array, n, start, end}
-  loadedFor: null,      // progress mtime the data was read for
+  data: null,           // {xz: Int16Array, t: Uint32Array, n, start, end, mode}
+  loadedFor: null,      // progress mtime and mode the data was read for
   loading: null,
   error: null,
   cut: null,            // play time the path is cut at; null = the end (follows the save)
@@ -386,15 +386,18 @@ function hpUpper(time) {
 const mix = (a, b, f) => `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * f)).join(',')})`;
 
 async function hpLoad() {
-  const mt = state.progress ? state.progress.mtime : 0;
-  if (hp.loading || (hp.data && hp.loadedFor === mt)) return hp.loading;
-  if (!hp.data) hpStatus(t('hpath.loading'));
+  const mode = (state.progress && state.progress.mode) || 'normal';
+  const key = `${state.progress ? state.progress.mtime : 0}/${mode}`;
+  if (hp.data && hp.loadedFor === key) return null;
+  if (!hp.loading && (!hp.data || hp.data.mode !== mode)) { hp.data = null; hp.cut = null; renderPath(); hpStatus(t('hpath.loading')); }
+  // A load already under way is for the slot shown before; when it's done, load again if that was another mode.
+  if (hp.loading) return hp.loading.then(() => (hp.on && hp.data && hp.data.mode !== mode && !hp.loading ? hpLoad() : null));
   hp.loading = (async () => {
     try {
-      const r = await getJSON('/api/path');
+      const r = await getJSON('/api/path?mode=' + mode);
       hp.error = r.found ? null : 'none';
-      hp.data = r.found ? { n: r.n, start: r.start, end: r.end, xz: b64(r.xz, Int16Array), t: b64(r.t, Uint32Array) } : { n: 0 };
-      hp.loadedFor = mt;
+      hp.data = r.found ? { n: r.n, start: r.start, end: r.end, mode, xz: b64(r.xz, Int16Array), t: b64(r.t, Uint32Array) } : { n: 0, mode };
+      hp.loadedFor = key;
     } catch (e) {
       hp.error = e.message;
     } finally {
@@ -782,7 +785,8 @@ async function loadSlots() {
   const cur = state.slot;
   sel.innerHTML = `<option value="latest">${esc(t('slot.latest', { n: s.latest ?? '–' }))}</option>` +
     s.slots.map(x => `<option value="${x.slot}" ${x.error ? 'disabled' : ''}>${esc(t('slot.item', { n: x.slot,
-      info: x.error ? t('slot.unreadable') : fmtTime(x.playtime), date: new Date(x.mtime * 1000).toLocaleString(LOCALE) }))}</option>`).join('');
+      info: x.error ? t('slot.unreadable') : fmtTime(x.playtime) + (x.mode === 'master' ? t('slot.master') : ''),
+      date: new Date(x.mtime * 1000).toLocaleString(LOCALE) }))}</option>`).join('');
   sel.value = [...sel.options].some(o => o.value === String(cur)) ? String(cur) : 'latest';
   state.slot = sel.value;
   return s;

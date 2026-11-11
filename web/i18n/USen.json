@@ -11,6 +11,7 @@
   "slot.latest": "Latest save (slot {n})",
   "slot.item": "Slot {n} · {info} · {date}",
   "slot.unreadable": "unreadable",
+  "slot.master": " · Master Mode",
   "mode.aria": "Show",
   "mode.missing": "Missing",
   "mode.done": "Done",

@@ -23,25 +23,48 @@ Where the project stands, what was learned along the way, and what's next. Updat
 Fork addition: the game's Hero's Path drawn on the map (`herospath.py`, `/api/path`, Hero's Path section in the
 panel and button in the map bar).
 
-### Format (`tracker/trackblockNN.sav`)
+### Format (`tracker/trackblockNN.sav`, `tracker/trackblock_hardNN.sav`)
 - Next to the slot folders: `<save>/tracker/trackblock00.sav` beside `<save>/0/game_data.sav` (Switch / emulator
-  layout; Savage Wind keeps the same layout under `save/save_0`). Shared by all slots.
-- 64 KiB. Header: u16 0, u16 block being written, u32 points in it, u32 1; blocks from 0x40, 0x4C0 bytes each
-  (53 per file): u32 play time of the first point, u32 a second time (equal or a little later), 8 bytes 0, then 300
-  u32 points, one per 2 s of play.
+  layout; Savage Wind keeps the same layout under `save/save_0`). One recording per difficulty: `trackblockNN` for
+  normal mode, `trackblock_hardNN` for Master Mode, each shared by the slots of its mode.
+- Each recording is a ring of 32 files: after `trackblock31` the game starts over at `00`, overwriting the oldest
+  part of the path (a 900 h save keeps about the last 240 h).
+- 64 KiB. Header: u8 file number, u8 sequence (+1 per file written; orders the ring after a wrap), u16 block being
+  written, u32 points in it, u32 flags (1 or 17); blocks from 0x40, 0x4C0 bytes each (48 used): u32 play time of the
+  first point, u32 another clock (not the play time, not used), 8 bytes 0, then 300 u32 points, one per 2 s of play.
 - Point: bits 0-11 |z|, 12 z sign, 13-25 |x|, 26 x sign, 31 on MainField (clear inside shrines etc., where the
-  coordinates are the shrine's own), 27-29 markers around warps/loads (not used). No height.
+  coordinates are the shrine's own), 27 arrived without walking (fast travel or a save loaded, which puts Link at
+  the save's position), 28-29 other markers around warps (not used). No height.
+- Loads: play time goes back to the loaded save's, but the game keeps appending, so the file still has the run that
+  was reloaded over (e.g. the one that ended in a death). Neither which arrivals were loads nor their play time is
+  stored. A block's 300 points cover about 600 s, so `t0 + 600 - next block's t0` (over ~10 s) is how far its loads
+  went back in all; that goes on the arrival where Link had been that much earlier (one or two loads), else the
+  last arrival. The last block uses the saves: an arrival before a slot's save position, when the slot's play time
+  is earlier than the point's. Then every point that something later is earlier than in play time is dropped, so
+  the path leads to the saves and times only go up. Matching on "most recent time Link was here" alone is wrong:
+  fast travel arrives at the same spots (and autosaves there).
+- Which slots are Master Mode isn't in `game_data.sav` as far as found; `herospath.slot_mode` picks the recording
+  that was closest to the slot's `PlayerSavePos` at its play time (falls back to normal).
 - Checked against a Yuzu save of a Great Plateau run (6 slots, 3 h): all six `PlayerSavePos` lie on the path within 2
   units, and point times (block time + 2 s x index) line up with `PlayReport_PlayTime` (the last point is 1 s before
   the newest slot's play time; older slots land within a few seconds where Link was moving). The path traces the Plateau's edge.
-- Not checked yet: a save with more than one trackblock file (long games; read in file order and sorted by block
-  time), and a Savage Wind save folder (assumed to keep `tracker/` like the Switch).
+- Checked against a 900 h save with Master Mode (2026-11-12; `testsave/`, not committed): 32 normal files (ring
+  wrapped twice over files 00-01, ~1,530 blocks, ~1,130 arrivals) and 22 Master Mode files. Slots 0-4 normal,
+  5-7 Master Mode, all assigned right; slots 0-3 and 5-7 lie on their path at their play time within 0-11 units
+  (5-7 were 150-200 off before the loads were placed). Slot 4 is 620 off: it was saved in a run that was then
+  reloaded over twice (loaded slot 3), so it isn't on the kept path. Reading both recordings takes about 0.9 s.
+- Not checked yet: a Savage Wind save folder (assumed to keep `tracker/` like the Switch), and a sequence wrap past
+  255 (handled, untested on real files).
 
 ### Page
 - Cut at the shown slot's play time (an older slot = the path up to that save), slider for earlier times, replay
   (about 40 s for the whole path), color by time (14 bands), last-30-minutes trail, click for the time you were
   there, distance travelled (world units are metres). Gaps over 150 units in 2 s are warps and break the line.
+- Each slot shows its mode's recording (`/api/path?mode=normal|master`, `mode` on `/api/slots` and
+  `/api/progress`); Master Mode slots say so in the slot picker.
 - Prefs `hpath`, `hpathColor`, `hpathTrail`.
+- To do: look for a Master Mode flag among the 45,027 names in `gamedata.ssarc` (needs the game files) to replace
+  the position match in `slot_mode`.
 
 ## v0.1.0 (2026-11-11): first version
 

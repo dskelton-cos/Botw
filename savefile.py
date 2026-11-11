@@ -87,10 +87,20 @@ def _first(table, h):
     return v[0] if v else None
 
 
+def save_xz(table):
+    """[x, z] where the game saved, on whichever map Link was (for matching a slot to its Hero's Path), or None."""
+    v = table.get(SAVE_POS_HASH)
+    if not v or len(v) < 3:
+        return None
+    x, _, z = struct.unpack('<3f', struct.pack('<3I', *v[:3]))
+    return [round(x, 1), round(z, 1)] if abs(x) < 20000 and abs(z) < 20000 else None
+
+
 def save_info(path):
     buf = Path(path).read_bytes()
     table = read_table(buf)
-    return {'version_id': struct.unpack_from('<I', buf, 0)[0], 'playtime': _first(table, PLAYTIME_HASH) or 0}
+    return {'version_id': struct.unpack_from('<I', buf, 0)[0], 'playtime': _first(table, PLAYTIME_HASH) or 0,
+            'pos': save_xz(table)}
 
 
 def parse_quests(table, quests):
