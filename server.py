@@ -26,6 +26,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import gamelang
+import herospath
 import savefile
 from paths import APP_NAME, ASSETS, CONFIG, DATA, FROZEN, GAME_EXE, LOG, VERSION, WEB, WINDOWS
 
@@ -199,6 +200,7 @@ def inspect(path):
     if save_dir:
         info['save_dir'] = str(save_dir)
         info['slots'] = len(_slot_dirs(save_dir))
+        info['tracker'] = bool(herospath.block_files(herospath.tracker_dir(save_dir) or save_dir / 'tracker'))
     if not root and not save_dir:
         info['notes'].append(f"This doesn't look like a Savage Wind folder: no {GAME_EXE}, extracted or save "
                              "folder inside.")
@@ -298,6 +300,7 @@ class State:
         self.save_dir = None
         self.map_data = self.quests = None
         self.cache = {}
+        self.path_cache = None   # (stamp, packed Hero's Path)
         self.job = {'running': False, 'progress': 0.0, 'message': '', 'error': None, 'done': False}
         self.reload()
 
@@ -313,6 +316,7 @@ class State:
         self.quests = qdata.get('quests')
         with self.lock:
             self.cache.clear()
+            self.path_cache = None
 
     def ready(self):
         return bool(self.save_dir) and self.map_data is not None and have_assets()
@@ -388,7 +392,8 @@ class State:
         except Exception:
             traceback.print_exc()
 
-    UI_PREFS = {'off', 'known', 'mode', 'layer', 'tab', 'slot', 'qmode', 'qtargets', 'qstarts', 'qopen', 'mystery', 'updateSkip'}
+    UI_PREFS = {'off', 'known', 'mode', 'layer', 'tab', 'slot', 'qmode', 'qtargets', 'qstarts', 'qopen', 'mystery', 'updateSkip',
+                'hpath', 'hpathColor', 'hpathTrail'}
 
     def set_prefs(self, values):
         """View settings of the page (legend, filters, layer, tab, ...), kept in config.json so they survive
@@ -508,6 +513,21 @@ class State:
         result.update(slot=slot, mtime=st.st_mtime)
         with self.lock:
             self.cache[slot] = (key, result)
+        return result
+
+    def hero_path(self):
+        """The Hero's Path (herospath.pack), re-read when a trackblock file changes. Shared by all slots: the page
+        cuts it at the play time of the slot it shows."""
+        folder = herospath.tracker_dir(self.save_dir)
+        if not folder:
+            return {'found': False, 'n': 0}
+        key = (str(folder), herospath.stamp(folder))
+        with self.lock:
+            if self.path_cache and self.path_cache[0] == key:
+                return self.path_cache[1]
+        result = {'found': True, **herospath.pack(herospath.read(folder))}
+        with self.lock:
+            self.path_cache = (key, result)
         return result
 
 
@@ -716,7 +736,7 @@ def make_handler(state, server_ref, remote=False):
                     self.send_json(state.cfg.get('ui') or {})
                 elif p == '/api/setup':
                     self.send_json(state.setup_status(with_candidates=q.get('scan', ['0'])[0] == '1'))
-                elif p in ('/api/slots', '/api/progress') and not state.ready():
+                elif p in ('/api/slots', '/api/progress', '/api/path') and not state.ready():
                     self.send_json({'error': 'setup required', 'setup': True}, 409)
                 elif p == '/api/slots':
                     self.send_json({'save_dir': None if remote else str(state.save_dir), 'latest': state.latest_slot(),
@@ -729,6 +749,8 @@ def make_handler(state, server_ref, remote=False):
                         self.send_json({'error': 'no readable save yet'}, 404)
                     else:
                         self.send_json(state.progress(slot))
+                elif p == '/api/path':
+                    self.send_json(state.hero_path())
                 elif p == '/data/map_data.json':
                     self.send_file(ASSETS / 'map_data.json', cache=True)
                 elif p == '/data/quests.json':
@@ -748,7 +770,7 @@ def make_handler(state, server_ref, remote=False):
         def remote_get_allowed(self, p):
             """Phones and other devices on the network only read: the page, the map data and the progress."""
             if p.startswith('/api/'):
-                return p in ('/api/ping', '/api/setup', '/api/slots', '/api/progress', '/api/prefs', '/api/i18n')
+                return p in ('/api/ping', '/api/setup', '/api/slots', '/api/progress', '/api/path', '/api/prefs', '/api/i18n')
             return True
 
         def do_POST(self):

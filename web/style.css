@@ -273,3 +273,25 @@ body:not(.tab-quests) .view-quests, body.tab-quests .view-map { display: none !i
 .share-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 2px; }
 .share-foot .btn { white-space: nowrap; flex: none; }
 .setup .lang-sel { width: 100%; max-width: 340px; margin-bottom: 6px; }
+
+/* Hero's Path: panel section under the summary, and its button in the bar at the top of the map */
+.hpath { padding: 8px 16px 10px; border-bottom: 1px solid var(--line); }
+.hpath-head { display: flex; align-items: center; gap: 8px; }
+.hpath-head .switch { flex: 1; font-weight: 500; }
+.hpath-ico { width: 20px; height: 20px; color: var(--muted); flex: none; }
+.hpath.on .hpath-ico { color: #ffd65c; }
+.hpath-stat { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.hpath-body { display: grid; gap: 8px; margin-top: 8px; }
+.hpath-body[hidden] { display: none; }
+.hpath-time { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; }
+.hpath-play { font-size: 13px; width: 30px; height: 28px; padding: 0; border-color: var(--line); color: #ffd65c; }
+.hpath-play:disabled { opacity: .4; cursor: default; }
+.hpath-time input[type=range] { width: 100%; accent-color: #e0a400; margin: 0; }
+.hpath-when { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; min-width: 72px; text-align: right; }
+.hpath-opts { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.hpath-opts input { accent-color: var(--accent); }
+.hpath-scale { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11px; }
+.hpath-scale[hidden] { display: none; }
+.hpath-scale i { flex: 1; height: 4px; border-radius: 2px; background: linear-gradient(90deg, rgb(96,140,196), rgb(255,214,92)); }
+.layers .hpath-btn.on { color: #ffd65c; }
+.layers .hpath-btn svg { flex: none; }

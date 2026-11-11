@@ -344,6 +344,217 @@ function renderPlayer() {
   playerLayer.addLayer(playerMarker);
 }
 
+// ---------- Hero's Path ----------
+// Where Link has been, from the game's own recording (tracker/trackblockNN.sav, see herospath.py): a point every
+// 2 seconds of play on the map of Hyrule. Shared by all slots, so it's cut at the play time of the slot shown,
+// as the game does when you load an older save. The slider cuts it earlier; Replay plays it back.
+const HP_BREAK = -0x8000;      // herospath.BREAK: the line stops here (warp, shrine, ...)
+const HP_BANDS = 14;           // color steps from oldest to newest
+const HP_TRAIL = 30 * 60;      // "Only the last 30 min"
+const HP_OLD = [96, 140, 196], HP_NEW = [255, 214, 92];
+const HP_COLOR = '#ffd65c';
+const hp = {
+  on: store.get('hpath', false),
+  color: store.get('hpathColor', true),
+  trail: store.get('hpathTrail', false),
+  data: null,           // {xz: Int16Array, t: Uint32Array, n, start, end}
+  loadedFor: null,      // progress mtime the data was read for
+  loading: null,
+  error: null,
+  cut: null,            // play time the path is cut at; null = the end (follows the save)
+  playing: null,        // requestAnimationFrame id while replaying
+};
+const hpRenderer = L.canvas({ padding: 0.4, tolerance: 6 });
+const hpLayer = L.layerGroup().addTo(map);
+const b64 = (s, Type) => { const bin = atob(s), u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i); return new Type(u8.buffer); };
+const fmtKm = m => new Intl.NumberFormat(LOCALE, { maximumFractionDigits: m < 10000 ? 1 : 0 }).format(m / 1000);
+// Play time the path goes up to for the slot shown: its play time (later points are from a later save).
+const hpEnd = () => {
+  const d = hp.data;
+  if (!d || !d.n) return 0;
+  const pt = state.progress && state.progress.playtime;
+  return pt && pt < d.end ? Math.max(d.start, pt) : d.end;
+};
+const hpCut = () => (hp.cut == null ? hpEnd() : Math.min(hp.cut, hpEnd()));
+// first index with t > time
+function hpUpper(time) {
+  const t = hp.data.t;
+  let lo = 0, hi = hp.data.n;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (t[m] <= time) lo = m + 1; else hi = m; }
+  return lo;
+}
+const mix = (a, b, f) => `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * f)).join(',')})`;
+
+async function hpLoad() {
+  const mt = state.progress ? state.progress.mtime : 0;
+  if (hp.loading || (hp.data && hp.loadedFor === mt)) return hp.loading;
+  if (!hp.data) hpStatus(t('hpath.loading'));
+  hp.loading = (async () => {
+    try {
+      const r = await getJSON('/api/path');
+      hp.error = r.found ? null : 'none';
+      hp.data = r.found ? { n: r.n, start: r.start, end: r.end, xz: b64(r.xz, Int16Array), t: b64(r.t, Uint32Array) } : { n: 0 };
+      hp.loadedFor = mt;
+    } catch (e) {
+      hp.error = e.message;
+    } finally {
+      hp.loading = null;
+    }
+    hpUi();
+    renderPath();
+  })();
+  return hp.loading;
+}
+
+function hpStatus(msg) { $('#hpath-msg').hidden = !msg; $('#hpath-msg').textContent = msg || ''; }
+
+// panel and map-bar controls
+function hpUi() {
+  $('#hpath-on').checked = hp.on;
+  $('#hpath-btn').classList.toggle('on', hp.on);
+  $('#hpath-btn').setAttribute('aria-pressed', String(hp.on));
+  $('#hpath').classList.toggle('on', hp.on);
+  $('#hpath-body').hidden = !hp.on;
+  $('#hpath-color').checked = hp.color;
+  $('#hpath-trail').checked = hp.trail;
+  $('#hpath-scale').hidden = !hp.color;
+  const d = hp.data, has = !!(d && d.n);
+  $('#hpath-play').disabled = $('#hpath-cut').disabled = !has;
+  $('#hpath-play').textContent = hp.playing ? '❚❚' : '▶';
+  const playLabel = hp.playing ? t('hpath.pause') : t('hpath.play');
+  $('#hpath-play').title = playLabel;
+  $('#hpath-play').setAttribute('aria-label', playLabel);
+  if (hp.error === 'none') hpStatus(t('hpath.none'));
+  else if (hp.error) hpStatus(t('hpath.error', { error: tMsg(hp.error) }));
+  else if (d && !d.n) hpStatus(t('hpath.empty'));
+  else if (d) hpStatus('');
+  if (!has) { $('#hpath-when').textContent = ''; $('#hpath-stat').textContent = ''; return; }
+  const s = $('#hpath-cut');
+  s.min = d.start; s.max = hpEnd(); s.value = hpCut();
+  $('#hpath-when').textContent = fmtTime(hpCut());
+}
+
+function setHp(key, val, pref) {
+  hp[key] = val; store.set(pref, val);
+  if (key === 'on') {
+    if (!val) hpStop();
+    else hpLoad();
+  }
+  hpUi();
+  renderPath();
+}
+
+let hpHead = null;
+function renderPath() {
+  hpLayer.clearLayers();
+  hpHead = null;
+  const d = hp.data;
+  if (!hp.on || !d || !d.n) return;
+  const cut = hpCut(), from = hp.trail ? cut - HP_TRAIL : -Infinity;
+  const i1 = hpUpper(cut), i0 = from === -Infinity ? 0 : hpUpper(from);
+  const xz = d.xz, ts = d.t;
+  // colors run over the part shown, so a short trail still goes from old to new
+  const t0 = i0 < i1 ? ts[i0] : 0, span = Math.max(1, cut - t0);
+  const bands = Array.from({ length: hp.color ? HP_BANDS : 1 }, () => []);
+  let seg = null, band = -1, dist = 0, px = null, pz = null, last = null;
+  for (let i = i0; i < i1; i++) {
+    const x = xz[2 * i], z = xz[2 * i + 1];
+    if (x === HP_BREAK) { seg = null; px = null; continue; }
+    const ll = [-(SIZE / 2 + z / 8), SIZE / 2 + x / 8];
+    const b = hp.color ? Math.min(HP_BANDS - 1, Math.floor((ts[i] - t0) / span * HP_BANDS)) : 0;
+    if (!seg || b !== band) {
+      const prev = seg && seg[seg.length - 1];
+      seg = prev ? [prev] : [];
+      bands[b].push(seg);
+      band = b;
+    }
+    seg.push(ll);
+    if (px !== null) dist += Math.hypot(x - px, z - pz);
+    px = x; pz = z; last = i;
+  }
+  $('#hpath-stat').textContent = t('hpath.km', { km: fmtKm(dist) });
+  $('#hpath-stat').title = t('hpath.statTitle');
+  const all = bands.flat().filter(s => s.length > 1);
+  if (!all.length) return;
+  // a dark edge under the line keeps it readable on bright snow and desert
+  hpLayer.addLayer(L.polyline(all, { renderer: hpRenderer, color: '#0b0e10', weight: 5.5, opacity: 0.45, interactive: false, lineJoin: 'round' }));
+  bands.forEach((segs, b) => {
+    const s = segs.filter(x => x.length > 1);
+    if (!s.length) return;
+    const color = hp.color ? mix(HP_OLD, HP_NEW, HP_BANDS > 1 ? b / (HP_BANDS - 1) : 1) : HP_COLOR;
+    const line = L.polyline(s, { renderer: hpRenderer, color, weight: 3, opacity: 0.95, lineJoin: 'round' });
+    line.on('click', e => hpPopup(e.latlng, i0, i1));
+    hpLayer.addLayer(line);
+  });
+  // where Link was at the cut, when it isn't the save itself (the yellow arrow is there)
+  if (last !== null && (hp.cut != null && hp.cut < hpEnd() || hp.playing)) {
+    hpHead = L.circleMarker([-(SIZE / 2 + xz[2 * last + 1] / 8), SIZE / 2 + xz[2 * last] / 8],
+      { renderer: hpRenderer, radius: 6, color: '#fff8e6', weight: 2, fillColor: '#e0a400', fillOpacity: 1 });
+    hpHead.bindPopup(() => `<div class="pop"><h3>${esc(t('hpath'))}</h3><div class="row">${esc(t('hpath.head'))}</div>
+      <div class="row">${esc(t('hpath.at', { time: fmtTime(ts[last]) }))}</div></div>`);
+    hpLayer.addLayer(hpHead);
+  }
+}
+
+// "You were here after 1 h 23 min of play": the nearest recorded point to the click
+function hpPopup(latlng, i0, i1) {
+  const d = hp.data, wx = (latlng.lng - SIZE / 2) * 8, wz = (-latlng.lat - SIZE / 2) * 8;
+  let best = -1, bd = Infinity;
+  for (let i = i0; i < i1; i++) {
+    const x = d.xz[2 * i];
+    if (x === HP_BREAK) continue;
+    const dd = (x - wx) ** 2 + (d.xz[2 * i + 1] - wz) ** 2;
+    if (dd < bd) { bd = dd; best = i; }
+  }
+  if (best < 0) return;
+  L.popup().setLatLng([-(SIZE / 2 + d.xz[2 * best + 1] / 8), SIZE / 2 + d.xz[2 * best] / 8])
+    .setContent(`<div class="pop"><h3>${esc(t('hpath.here'))}</h3><div class="row">${esc(t('hpath.at', { time: fmtTime(d.t[best]) }))}</div>
+      <div class="row">x ${d.xz[2 * best]} · z ${d.xz[2 * best + 1]}</div></div>`).openOn(map);
+}
+
+// Replay: the whole path in about 40 seconds (longer games go faster), from the start or where the slider is
+function hpPlay() {
+  if (hp.playing) { hpStop(); return; }
+  const d = hp.data;
+  if (!d || !d.n) return;
+  const end = hpEnd();
+  let cur = hp.cut == null || hp.cut >= end ? d.start : hp.cut;
+  const rate = Math.max(60, (end - d.start) / 40);   // play seconds per real second
+  let prev = performance.now();
+  const tick = now => {
+    cur = Math.min(end, cur + rate * (now - prev) / 1000);
+    prev = now;
+    hp.cut = cur >= end ? null : cur;
+    if (hp.cut == null) { hpStop(); return; }
+    hpUi(); renderPath();
+    if (hpHead && !map.getBounds().pad(-0.1).contains(hpHead.getLatLng())) map.panTo(hpHead.getLatLng(), { animate: false });
+    hp.playing = requestAnimationFrame(tick);
+  };
+  hp.playing = requestAnimationFrame(tick);
+  hpUi();
+}
+function hpStop() {
+  if (hp.playing) cancelAnimationFrame(hp.playing);
+  hp.playing = null;
+  hpUi(); renderPath();
+}
+
+let hpFrame = null;
+$('#hpath-cut').oninput = e => {
+  if (hp.playing) { cancelAnimationFrame(hp.playing); hp.playing = null; }
+  const v = Number(e.target.value);
+  hp.cut = v >= hpEnd() ? null : v;
+  $('#hpath-when').textContent = fmtTime(hpCut());
+  cancelAnimationFrame(hpFrame);
+  hpFrame = requestAnimationFrame(() => { hpUi(); renderPath(); });
+};
+$('#hpath-play').onclick = hpPlay;
+$('#hpath-on').onchange = e => setHp('on', e.target.checked, 'hpath');
+$('#hpath-btn').onclick = () => setHp('on', !hp.on, 'hpath');
+$('#hpath-color').onchange = e => setHp('color', e.target.checked, 'hpathColor');
+$('#hpath-trail').onchange = e => setHp('trail', e.target.checked, 'hpathTrail');
+hpUi();
+
 function renderLegend() {
   const done = state.progress ? state.progress.done : {};
   const el = $('#legend');
@@ -582,6 +793,7 @@ async function loadProgress() {
   state.progress = p;
   state.lastMtime = p.mtime;
   renderSummary(); renderLegend(); render(); renderQuests(); renderQuestTargets();
+  if (hp.on) hpLoad(); else hpUi();
   setStatus(t('status.live', { n: p.slot, time: new Date(p.mtime * 1000).toLocaleTimeString(LOCALE) }), 'live');
 }
 
@@ -675,6 +887,7 @@ function badgeHtml(info) {
   b.push(info.exe || info.game ? '<span class="badge ok">Savage Wind</span>' : `<span class="badge warn">${esc(t('badge.saveOnly'))}</span>`);
   b.push(info.slots ? `<span class="badge ok">${esc(tn('badge.slots', info.slots))}</span>` : `<span class="badge warn">${esc(t('badge.noSaves'))}</span>`);
   b.push(info.game ? `<span class="badge ok">${esc(t('badge.quests'))}</span>` : `<span class="badge warn">${esc(t('badge.noQuests'))}</span>`);
+  if (info.tracker) b.push(`<span class="badge ok">${esc(t('badge.path'))}</span>`);
   return `<div class="badges">${b.join('')}</div>`;
 }
 

@@ -18,6 +18,31 @@ Where the project stands, what was learned along the way, and what's next. Updat
    (`IsGet_MemoryPhoto_NNN`, positions not found yet), Hestu.
 4. Interface translations (`web/i18n/<code>.json`; only English so far, game text is already in every language).
 
+## Hero's Path (2026-11-11)
+
+Fork addition: the game's Hero's Path drawn on the map (`herospath.py`, `/api/path`, Hero's Path section in the
+panel and button in the map bar).
+
+### Format (`tracker/trackblockNN.sav`)
+- Next to the slot folders: `<save>/tracker/trackblock00.sav` beside `<save>/0/game_data.sav` (Switch / emulator
+  layout; Savage Wind keeps the same layout under `save/save_0`). Shared by all slots.
+- 64 KiB. Header: u16 0, u16 block being written, u32 points in it, u32 1; blocks from 0x40, 0x4C0 bytes each
+  (53 per file): u32 play time of the first point, u32 a second time (equal or a little later), 8 bytes 0, then 300
+  u32 points, one per 2 s of play.
+- Point: bits 0-11 |z|, 12 z sign, 13-25 |x|, 26 x sign, 31 on MainField (clear inside shrines etc., where the
+  coordinates are the shrine's own), 27-29 markers around warps/loads (not used). No height.
+- Checked against a Yuzu save of a Great Plateau run (6 slots, 3 h): all six `PlayerSavePos` lie on the path within 2
+  units, and point times (block time + 2 s x index) line up with `PlayReport_PlayTime` (the last point is 1 s before
+  the newest slot's play time; older slots land within a few seconds where Link was moving). The path traces the Plateau's edge.
+- Not checked yet: a save with more than one trackblock file (long games; read in file order and sorted by block
+  time), and a Savage Wind save folder (assumed to keep `tracker/` like the Switch).
+
+### Page
+- Cut at the shown slot's play time (an older slot = the path up to that save), slider for earlier times, replay
+  (about 40 s for the whole path), color by time (14 bands), last-30-minutes trail, click for the time you were
+  there, distance travelled (world units are metres). Gaps over 150 units in 2 s are warps and break the line.
+- Prefs `hpath`, `hpathColor`, `hpathTrail`.
+
 ## v0.1.0 (2026-11-11): first version
 
 ### Game files (`gamefiles.py`)

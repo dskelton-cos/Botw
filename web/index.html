@@ -42,6 +42,27 @@
   </section>
 
   <section id="summary" class="summary view-map"></section>
+  <section id="hpath" class="hpath view-map">
+    <div class="hpath-head">
+      <label class="switch" title="Show where you've been (the game's Hero's Path)" data-i18n-title="hpath.title">
+        <input type="checkbox" id="hpath-on"> <svg class="hpath-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19c3-1 3-5 6-6s5 2 7-1 1-6 3-7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="0.1 4.4"/><circle cx="20" cy="5" r="2.4" fill="currentColor"/></svg>
+        <span data-i18n="hpath">Hero's Path</span></label>
+      <span id="hpath-stat" class="hpath-stat"></span>
+    </div>
+    <div id="hpath-body" class="hpath-body" hidden>
+      <div class="hpath-time">
+        <button id="hpath-play" class="icon-btn hpath-play" title="Replay" aria-label="Replay" data-i18n-title="hpath.play" data-i18n-aria-label="hpath.play">▶</button>
+        <input type="range" id="hpath-cut" min="0" max="1" step="2" value="1" aria-label="Show the path up to this point in your play time" data-i18n-aria-label="hpath.time" title="Show the path up to this point in your play time" data-i18n-title="hpath.time">
+        <span id="hpath-when" class="hpath-when"></span>
+      </div>
+      <div class="hpath-opts">
+        <label class="check"><input type="checkbox" id="hpath-color"> <span data-i18n="hpath.color">Color by time</span></label>
+        <label class="check"><input type="checkbox" id="hpath-trail"> <span data-i18n="hpath.trail">Only the last 30 min</span></label>
+      </div>
+      <div id="hpath-scale" class="hpath-scale" hidden><span data-i18n="hpath.old">Older</span><i></i><span data-i18n="hpath.new">Newer</span></div>
+      <div id="hpath-msg" class="muted small" hidden></div>
+    </div>
+  </section>
   <section id="legend" class="legend view-map"></section>
 
   <section id="qsummary" class="summary view-quests"></section>
@@ -80,6 +101,7 @@
     <div id="share-msg" class="err" hidden></div>
   </div>
   <nav class="layers" id="layers">
+    <button id="hpath-btn" class="hpath-btn" title="Show where you've been (the game's Hero's Path)" data-i18n-title="hpath.title" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M4 19c3-1 3-5 6-6s5 2 7-1 1-6 3-7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="0.1 4.4"/><circle cx="20" cy="5" r="2.4" fill="currentColor"/></svg><span data-i18n="hpath">Hero's Path</span></button>
     <button id="find-link" class="find-link" title="Where Link was when the game last saved" data-i18n-title="link.title" hidden><img src="/icons/player.svg" data-icon="player" alt=""><span data-i18n="link">Link</span></button>
   </nav>
   <button id="panel-toggle" class="panel-toggle" aria-label="Toggle panel" data-i18n-aria-label="panel.toggle">☰</button>

@@ -17,6 +17,13 @@ shown on the map (gold). "Where to start quests" puts a blue **!** where the que
 |---|---|
 | ![Quests tab: what's left to do, with the quest giver](docs/screenshots/quests.webp) | ![Zoomed out: everything still missing in Hyrule](docs/screenshots/overview.webp) |
 
+**Hero's Path** (checkbox under the summary, or the button at the top of the map) draws where you've been, from
+the game's own recording of your travels (the same data as the in-game Hero's Path mode): a point every 2 seconds of
+play. The slider goes back in time (the path is cut at that play time, with a dot where you were), **▶** replays it,
+*Color by time* fades older parts to blue, and *Only the last 30 min* shows just a trail. Click the line to see
+when you were there. It follows the save you pick: an older slot shows the path up to that save's play time, as the
+game does. The panel also shows how far you've travelled.
+
 **Spoiler-free mode** (checkbox at the top of the legend) shows everything you haven't found yet as a plain **?**:
 no type, name or chest contents, all under one "Undiscovered" filter. A **?** never matches a search.
 
@@ -86,6 +93,7 @@ Building a single-file app: `build_exe.bat` (Windows) or `sh build_linux.sh` (Li
 | Hinox, Talus, Molduga | placed `Enemy_Giant*`, `Enemy_Golem*`, `Enemy_Sandworm*` | `MainField_IsDefeat_<actor>_<id>` |
 | Chests | placed `TBox_*`, contents from `DropActor` | `MainField_<actor>_<id>` |
 | Quests | `Quest/QuestProduct.sbquestpack` (in `TitleBG.pack`), texts `QuestMsg/QL_<quest>.msbt` | each step's `NextFlag` |
+| Hero's Path | | `tracker/trackblockNN.sav` next to the slots (not `game_data.sav`), see `herospath.py` |
 
 Placed actors are read from the 80 map sections (`Map/MainField/<A-J>-<1-8>_{Static,Dynamic}.smubin`, the DLC's
 copies first). Lynels come back after every Blood Moon, so they're shown but not tracked.
