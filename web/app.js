@@ -366,6 +366,96 @@ const hp = {
 };
 const hpRenderer = L.canvas({ padding: 0.4, tolerance: 6 });
 const hpLayer = L.layerGroup().addTo(map);
+// The path is drawn straight from the typed arrays onto one canvas, skipping points less than a pixel from the last
+// one drawn. As Leaflet polylines (one LatLng object per point, re-projected on every pan and zoom) a long game's
+// ~400,000 points froze the page for 1-2 s on each toggle, pan or zoom.
+map.createPane('hpath').style.zIndex = 390;   // over the map tiles, under the markers
+const HpCanvas = L.Layer.extend({
+  options: { pane: 'hpath', padding: 0.3 },
+  view: null,           // {i0, i1, t0, span}: the part of the path shown and its color scale
+  onAdd() {
+    this._c = L.DomUtil.create('canvas', 'leaflet-zoom-animated');
+    this._c.style.pointerEvents = 'none';
+    this.getPane().appendChild(this._c);
+    this._reset();
+  },
+  onRemove() { L.DomUtil.remove(this._c); },
+  getEvents() { return { moveend: this._reset, resize: this._reset, zoomanim: this._animate }; },
+  _animate(e) {
+    const m = this._map;
+    L.DomUtil.setTransform(this._c, m._latLngToNewLayerPoint(this._topLeft, e.zoom, e.center), m.getZoomScale(e.zoom));
+  },
+  _reset() {
+    const m = this._map, size = m.getSize(), pad = size.multiplyBy(this.options.padding).round();
+    const tl = pad.multiplyBy(-1), w = size.x + 2 * pad.x, h = size.y + 2 * pad.y, dpr = window.devicePixelRatio || 1;
+    this._topLeft = m.containerPointToLatLng(tl);
+    L.DomUtil.setPosition(this._c, m.containerPointToLayerPoint(tl));
+    this._c.width = Math.round(w * dpr); this._c.height = Math.round(h * dpr);
+    this._c.style.width = w + 'px'; this._c.style.height = h + 'px';
+    // world (x, z) -> canvas pixels: x * k + ax, z * k + az
+    const s = m.getZoomScale(m.getZoom(), 0), o = m.latLngToContainerPoint([0, 0]);
+    this._px = { k: s / 8, ax: o.x + pad.x + SIZE / 2 * s, az: o.y + pad.y + SIZE / 2 * s, w, h, dpr };
+    this.redraw();
+  },
+  redraw() {
+    if (!this._map) return;
+    const ctx = this._c.getContext('2d'), { k, ax, az, w, h, dpr } = this._px;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    const d = hp.data, v = this.view;
+    if (!d || !d.n || !v || v.i0 >= v.i1) return;
+    // the points worth drawing, as canvas pixels (NaN: the line stops here), with their color band
+    const n = v.i1 - v.i0 + 1, xs = new Float32Array(2 * n), ys = new Float32Array(2 * n), bs = new Uint8Array(2 * n);
+    const M = 200;   // a step is at most 150 units: from farther outside than this, a segment can't reach the canvas
+    const lift = () => { if (m && !isNaN(xs[m - 1])) { xs[m] = ys[m] = NaN; m++; } };
+    let m = 0, lx = NaN, ly = NaN, wasOut = true;
+    for (let i = v.i0; i < v.i1; i++) {
+      const x = d.xz[2 * i];
+      if (x === HP_BREAK) { lift(); lx = NaN; continue; }
+      const cx = x * k + ax, cy = d.xz[2 * i + 1] * k + az;
+      const out = cx < -M || cy < -M || cx > w + M || cy > h + M;
+      if (out && wasOut) { lift(); lx = NaN; continue; }   // off the canvas: pick the line up again when back
+      wasOut = out;
+      const b = hp.color ? Math.min(HP_BANDS - 1, Math.floor((d.t[i] - v.t0) / v.span * HP_BANDS)) : 0;
+      if (!isNaN(lx) && Math.abs(cx - lx) < 0.7 && Math.abs(cy - ly) < 0.7 && b === bs[m - 1] && i < v.i1 - 1) continue;
+      xs[m] = cx; ys[m] = cy; bs[m] = b; m++;
+      lx = cx; ly = cy;
+    }
+    // band null: the whole line; else the segments that end in that band (each starts at the point before it)
+    const stroke = (color, width, alpha, band) => {
+      ctx.strokeStyle = color; ctx.lineWidth = width; ctx.globalAlpha = alpha;
+      ctx.lineJoin = ctx.lineCap = 'round';
+      ctx.beginPath();
+      for (let j = 1; j < m; j++) {
+        if (isNaN(xs[j]) || isNaN(xs[j - 1]) || (band != null && bs[j] !== band)) continue;
+        if (j === 1 || isNaN(xs[j - 2]) || (band != null && bs[j - 1] !== band)) ctx.moveTo(xs[j - 1], ys[j - 1]);
+        ctx.lineTo(xs[j], ys[j]);
+      }
+      ctx.stroke();
+    };
+    // a dark edge under the line keeps it readable on bright snow and desert
+    stroke('#0b0e10', 5.5, 0.45, null);
+    if (!hp.color) stroke(HP_COLOR, 3, 0.95, null);
+    else for (let b = 0; b < HP_BANDS; b++) stroke(mix(HP_OLD, HP_NEW, b / (HP_BANDS - 1)), 3, 0.95, b);
+    ctx.globalAlpha = 1;
+  },
+});
+const hpCanvas = new HpCanvas().addTo(map);
+// "You were here": a click within a few pixels of the path (not on a marker, which handles its own clicks)
+map.on('click', e => {
+  const d = hp.data, v = hpCanvas.view;
+  if (!hp.on || !d || !d.n || !v || e.sourceTarget !== map) return;
+  const p = e.containerPoint, s = map.getZoomScale(map.getZoom(), 0), o = map.latLngToContainerPoint([0, 0]);
+  const k = s / 8, ax = o.x + SIZE / 2 * s, az = o.y + SIZE / 2 * s;
+  let best = -1, bd = 8 * 8;
+  for (let i = v.i0; i < v.i1; i++) {
+    const x = d.xz[2 * i];
+    if (x === HP_BREAK) continue;
+    const dx = x * k + ax - p.x, dz = d.xz[2 * i + 1] * k + az - p.y, dd = dx * dx + dz * dz;
+    if (dd <= bd) { bd = dd; best = i; }   // on a spot passed many times, the latest visit
+  }
+  if (best >= 0) hpPopup(best);
+});
 const b64 = (s, Type) => { const bin = atob(s), u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i); return new Type(u8.buffer); };
 const fmtKm = m => new Intl.NumberFormat(LOCALE, { maximumFractionDigits: m < 10000 ? 1 : 0 }).format(m / 1000);
 // Play time the path goes up to for the slot shown: its play time (later points are from a later save).
@@ -452,43 +542,25 @@ function renderPath() {
   hpLayer.clearLayers();
   hpHead = null;
   const d = hp.data;
-  if (!hp.on || !d || !d.n) return;
+  hpCanvas.view = null;
+  if (!hp.on || !d || !d.n) { hpCanvas.redraw(); return; }
   const cut = hpCut(), from = hp.trail ? cut - HP_TRAIL : -Infinity;
   const i1 = hpUpper(cut), i0 = from === -Infinity ? 0 : hpUpper(from);
   const xz = d.xz, ts = d.t;
   // colors run over the part shown, so a short trail still goes from old to new
   const t0 = i0 < i1 ? ts[i0] : 0, span = Math.max(1, cut - t0);
-  const bands = Array.from({ length: hp.color ? HP_BANDS : 1 }, () => []);
-  let seg = null, band = -1, dist = 0, px = null, pz = null, last = null;
+  let dist = 0, px = null, pz = null, last = null;
   for (let i = i0; i < i1; i++) {
     const x = xz[2 * i], z = xz[2 * i + 1];
-    if (x === HP_BREAK) { seg = null; px = null; continue; }
-    const ll = [-(SIZE / 2 + z / 8), SIZE / 2 + x / 8];
-    const b = hp.color ? Math.min(HP_BANDS - 1, Math.floor((ts[i] - t0) / span * HP_BANDS)) : 0;
-    if (!seg || b !== band) {
-      const prev = seg && seg[seg.length - 1];
-      seg = prev ? [prev] : [];
-      bands[b].push(seg);
-      band = b;
-    }
-    seg.push(ll);
+    if (x === HP_BREAK) { px = null; continue; }
     if (px !== null) dist += Math.hypot(x - px, z - pz);
     px = x; pz = z; last = i;
   }
   $('#hpath-stat').textContent = t('hpath.km', { km: fmtKm(dist) });
   $('#hpath-stat').title = t('hpath.statTitle');
-  const all = bands.flat().filter(s => s.length > 1);
-  if (!all.length) return;
-  // a dark edge under the line keeps it readable on bright snow and desert
-  hpLayer.addLayer(L.polyline(all, { renderer: hpRenderer, color: '#0b0e10', weight: 5.5, opacity: 0.45, interactive: false, lineJoin: 'round' }));
-  bands.forEach((segs, b) => {
-    const s = segs.filter(x => x.length > 1);
-    if (!s.length) return;
-    const color = hp.color ? mix(HP_OLD, HP_NEW, HP_BANDS > 1 ? b / (HP_BANDS - 1) : 1) : HP_COLOR;
-    const line = L.polyline(s, { renderer: hpRenderer, color, weight: 3, opacity: 0.95, lineJoin: 'round' });
-    line.on('click', e => hpPopup(e.latlng, i0, i1));
-    hpLayer.addLayer(line);
-  });
+  hpCanvas.view = { i0, i1, t0, span };
+  hpCanvas.redraw();
+  if (last === null) return;
   // where Link was at the cut, when it isn't the save itself (the yellow arrow is there)
   if (last !== null && (hp.cut != null && hp.cut < hpEnd() || hp.playing)) {
     hpHead = L.circleMarker([-(SIZE / 2 + xz[2 * last + 1] / 8), SIZE / 2 + xz[2 * last] / 8],
@@ -499,17 +571,9 @@ function renderPath() {
   }
 }
 
-// "You were here after 1 h 23 min of play": the nearest recorded point to the click
-function hpPopup(latlng, i0, i1) {
-  const d = hp.data, wx = (latlng.lng - SIZE / 2) * 8, wz = (-latlng.lat - SIZE / 2) * 8;
-  let best = -1, bd = Infinity;
-  for (let i = i0; i < i1; i++) {
-    const x = d.xz[2 * i];
-    if (x === HP_BREAK) continue;
-    const dd = (x - wx) ** 2 + (d.xz[2 * i + 1] - wz) ** 2;
-    if (dd < bd) { bd = dd; best = i; }
-  }
-  if (best < 0) return;
+// "You were here after 1 h 23 min of play" at a recorded point (the nearest to a click on the path)
+function hpPopup(best) {
+  const d = hp.data;
   L.popup().setLatLng([-(SIZE / 2 + d.xz[2 * best + 1] / 8), SIZE / 2 + d.xz[2 * best] / 8])
     .setContent(`<div class="pop"><h3>${esc(t('hpath.here'))}</h3><div class="row">${esc(t('hpath.at', { time: fmtTime(d.t[best]) }))}</div>
       <div class="row">x ${d.xz[2 * best]} · z ${d.xz[2 * best + 1]}</div></div>`).openOn(map);

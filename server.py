@@ -301,6 +301,7 @@ class State:
         self.map_data = self.quests = None
         self.cache = {}
         self.path_cache = {}     # mode -> (stamp, timeline, packed Hero's Path or None)
+        self.info_cache = {}     # (save file, mtime, size) -> slots() entry
         self.job = {'running': False, 'progress': 0.0, 'message': '', 'error': None, 'done': False}
         self.reload()
 
@@ -317,6 +318,7 @@ class State:
         with self.lock:
             self.cache.clear()
             self.path_cache = {}
+            self.info_cache = {}
 
     def ready(self):
         return bool(self.save_dir) and self.map_data is not None and have_assets()
@@ -480,12 +482,21 @@ class State:
         for d in sorted(_slot_dirs(self.save_dir), key=lambda d: int(d.name)):
             f = d / 'game_data.sav'
             st = f.stat()
-            entry = {'slot': int(d.name), 'mtime': st.st_mtime}
-            try:
-                entry.update(savefile.save_info(f))
-            except (savefile.SaveError, OSError, struct.error) as e:
-                entry['error'] = str(e)
-            out.append(entry)
+            # the page polls this every few seconds while the game runs: read a save only when it changed
+            key = (str(f), st.st_mtime_ns, st.st_size)
+            with self.lock:
+                hit = self.info_cache.get(key)
+            if hit is None:
+                hit = {'slot': int(d.name), 'mtime': st.st_mtime}
+                try:
+                    hit.update(savefile.save_info(f))
+                except (savefile.SaveError, OSError, struct.error) as e:
+                    hit['error'] = str(e)
+                with self.lock:
+                    self.info_cache = {k: v for k, v in self.info_cache.items() if k[0] != key[0]}
+                    if 'error' not in hit:   # a torn read while the game writes: try again next time
+                        self.info_cache[key] = hit
+            out.append(dict(hit))
         self._slot_modes(out)
         return out
 
